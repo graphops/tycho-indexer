@@ -1,0 +1,26 @@
+ARG BASE_IMAGE=localhost/tycho-indexer:upstream-latest
+LABEL org.opencontainers.image.title="tycho-indexer (GraphOps)"
+LABEL org.opencontainers.image.description="GraphOps packaged tycho-indexer image with diesel and migrations folder"
+
+# Placeholder for GraphOps-specific adjustments; extend as needed.
+FROM rust:1.88-bookworm AS diesel-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq-dev \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+RUN cargo install diesel_cli --no-default-features --features postgres
+
+FROM ${BASE_IMAGE}
+WORKDIR /opt/tycho-indexer
+
+COPY tycho-storage/migrations ./migrations
+COPY tycho-storage/diesel.toml ./diesel.toml
+COPY ./substreams substreams
+
+COPY --from=diesel-builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
+
+ENV PATH="/usr/local/bin:${PATH}" \
+    TYCHO_MIGRATIONS_DIR=/opt/tycho-indexer/migrations
+
+ENTRYPOINT [ "/opt/tycho-indexer/tycho-indexer"]
+

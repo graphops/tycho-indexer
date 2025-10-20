@@ -6,11 +6,14 @@ target/
 .git/
 .claude/
 .idea/
+.vscode/
 
 # Substreams workspace builds (separate toolchain, not needed for main images)
 protocols/substreams/
 
 # Local dev files
+venv
+*/venv
 .env
 docker-compose*.yml
 *.swp

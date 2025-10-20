@@ -7,6 +7,5 @@ venv
 */venv
 .idea
 .git
-**/*.spkg
 Dockerfile
 .env

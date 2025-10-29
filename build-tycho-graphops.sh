@@ -16,10 +16,10 @@ Environment variables (can also be overridden via matching flags):
   BUILD_PLATFORM             Optional value passed to --platform (default: empty)
   BUILD_BASE_DOCKERFILE      Upstream Dockerfile path (default: Dockerfile)
   BUILD_BASE_CONTEXT         Build context directory for upstream Dockerfile (default: .)
-  BUILD_UPSTREAM_STAGE_IMAGE Tag for the patched base image (default: localhost/tycho-indexer:upstream-stage)
-  BUILD_GRAPHOPS_DOCKERFILE  GraphOps Dockerfile path (default: Dockerfile.graphops.yaml)
+  BUILD_UPSTREAM_STAGE_IMAGE Tag for the patched base image (default: localhost/tycho-indexer:upstream-latest)
+  BUILD_GRAPHOPS_DOCKERFILE  GraphOps Dockerfile path (default: Dockerfile.graphops)
   BUILD_GRAPHOPS_CONTEXT     Build context directory for GraphOps Dockerfile (default: .)
-  BUILD_RELEASE_IMAGE        Tag for the final release image (default: localhost/tycho-indexer:release)
+  BUILD_RELEASE_IMAGE        Tag for the final release image (default: harbor.mgmt.infra.graphops.xyz/infra/tycho-indexer:latest)
   BUILD_PUSH                 Set to "true" to push the release image (default: false)
 
 Options:

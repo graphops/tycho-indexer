@@ -1,0 +1,23 @@
+{{- $fullname := include "tycho-indexer.fullname" . -}}
+{{- $dbInit := .Values.preflightSql | default (dict) -}}
+{{- $dbInitSQL := $dbInit.sql | default (dict) -}}
+{{- $statements := default (list) $dbInitSQL.statements -}}
+{{- if and (default false $dbInit.enabled) (gt (len $statements) 0) }}
+{{- $configMapName := default (printf "%s-preflight-sql" $fullname) $dbInitSQL.configMapName -}}
+{{- $fileName := default "init.sql" $dbInitSQL.fileName -}}
+{{- $configMapKey := default $fileName $dbInitSQL.configMapKey -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" .Values.argoCD.syncWaveBase "offset" -1) | quote }}
+data:
+  {{ $configMapKey }}: |
+{{- range $statements }}
+{{ . | nindent 4 }}
+{{- end }}
+{{- end }}

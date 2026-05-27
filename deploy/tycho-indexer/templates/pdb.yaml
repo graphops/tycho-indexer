@@ -1,0 +1,21 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tycho-indexer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" .Values.argoCD.syncWaveBase "offset" -1) | quote }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "tycho-indexer.selectorLabels" . | nindent 6 }}
+  {{- with .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+{{- end }}

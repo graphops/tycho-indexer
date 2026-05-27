@@ -1,0 +1,420 @@
+{{- $root := . -}}
+{{- $fullname := include "tycho-indexer.fullname" . -}}
+{{- $workload := .Values.workload | default (dict) -}}
+{{- $kind := default "Deployment" $workload.kind -}}
+{{- if not (or (eq $kind "Deployment") (eq $kind "StatefulSet")) -}}
+  {{- fail (printf "workload.kind must be Deployment or StatefulSet (got %q)" $kind) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" .Values.argoCD.syncWaveBase "offset" 0) | quote }}
+    {{- with .Values.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "tycho-indexer.selectorLabels" . | nindent 6 }}
+  {{ if eq $kind "StatefulSet" }}
+  {{- $stateful := default (dict) $workload.statefulSet -}}
+  {{- $headless := default (dict) $stateful.headlessService -}}
+  {{- $headlessEnabled := true -}}
+  {{- if hasKey $headless "enabled" -}}
+    {{- $headlessEnabled = $headless.enabled -}}
+  {{- end -}}
+  {{- if and (not $headlessEnabled) (not $stateful.serviceName) -}}
+    {{- fail "workload.statefulSet.serviceName must be set when workload.statefulSet.headlessService.enabled is false" -}}
+  {{- end -}}
+  {{- $headlessDefaultName := printf "%s-headless" $fullname -}}
+  {{- $headlessName := default $headlessDefaultName $headless.name -}}
+  {{- $serviceName := default $headlessName $stateful.serviceName -}}
+  serviceName: {{ $serviceName }}
+  {{- with $stateful.podManagementPolicy }}
+  podManagementPolicy: {{ . }}
+  {{- end }}
+  {{- with $stateful.updateStrategy }}
+  updateStrategy:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{ else }}
+  {{- $deploy := default (dict) $workload.deployment -}}
+  {{- with $deploy.strategy }}
+  strategy:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{ end }}
+  template:
+    metadata:
+      labels:
+        {{- include "tycho-indexer.podLabels" . | nindent 8 }}
+      {{- $podAnnotations := include "tycho-indexer.podAnnotations" . }}
+      {{- if $podAnnotations }}
+      annotations:
+{{ $podAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "tycho-indexer.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $imageRepository := .Values.image.repository -}}
+      {{- $imageTag := default .Chart.AppVersion .Values.image.tag -}}
+      {{- $appImage := $imageRepository -}}
+      {{- if and $imageRepository (ne $imageTag "") }}
+        {{- $appImage = printf "%s:%s" $imageRepository $imageTag -}}
+      {{- end }}
+      {{- $appEnv := dict "list" (list) -}}
+      {{- include "tycho-indexer.buildEnvVars" (dict "root" $root "env" .Values.env "target" $appEnv) -}}
+      {{- $appEnvFrom := dict "list" (list) -}}
+      {{- include "tycho-indexer.buildEnvFrom" (dict "envFrom" .Values.envFrom "target" $appEnvFrom) -}}
+      {{- $database := .Values.database | default (dict) -}}
+      {{- $fragmentNames := dict "host" "DB_HOST" "port" "DB_PORT" "name" "DB_NAME" "user" "DB_USER" "password" "DB_PASS" -}}
+      {{- if $database.fragmentEnvNames }}
+        {{- range $k, $v := $database.fragmentEnvNames }}
+          {{- if $v }}{{- $_ := set $fragmentNames $k $v -}}{{- end -}}
+        {{- end }}
+      {{- end }}
+      {{- $databaseMode := default "fragments" $database.mode -}}
+      {{- $useFragments := ne $databaseMode "url" -}}
+      {{- $fragmentSources := $database.fragments | default (dict) -}}
+      {{- $fragmentsUsed := dict "value" $useFragments -}}
+      {{- if $useFragments }}
+        {{- range $key, $envName := $fragmentNames }}
+          {{- $source := index $fragmentSources $key -}}
+          {{- if $source }}
+            {{- include "tycho-indexer.appendEnvVar" (dict "root" $root "target" $appEnv "name" $envName "source" $source) -}}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- $additionalEnv := $database.additional | default (dict) -}}
+      {{- range $envName, $source := $additionalEnv }}
+        {{- include "tycho-indexer.appendEnvVar" (dict "root" $root "target" $appEnv "name" $envName "source" $source) -}}
+      {{- end }}
+      {{- $assembledName := default "DATABASE_URL" $database.assembledEnvName -}}
+      {{- if $database.url }}
+        {{- include "tycho-indexer.appendEnvVar" (dict "root" $root "target" $appEnv "name" $assembledName "source" $database.url) -}}
+      {{- else if (index $fragmentsUsed "value") }}
+        {{- $template := default "postgres://$(DB_USER):$(DB_PASS)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)" $database.assembleTemplate -}}
+        {{- include "tycho-indexer.appendEnvVar" (dict "root" $root "target" $appEnv "name" $assembledName "source" $template) -}}
+      {{- end }}
+      {{- $dbInit := .Values.preflightSql | default (dict) -}}
+      {{- $dbInitSQL := $dbInit.sql | default (dict) -}}
+      {{- $dbInitStatements := default (list) $dbInitSQL.statements -}}
+      {{- $dbInitHasStatements := gt (len $dbInitStatements) 0 -}}
+      {{- $dbInitConfigName := default "" $dbInitSQL.configMapName -}}
+      {{- $dbInitHasConfig := ne $dbInitConfigName "" -}}
+      {{- $dbInitEnabled := and (default false $dbInit.enabled) (or $dbInitHasStatements $dbInitHasConfig) -}}
+      {{- $dbInitConfig := dict -}}
+      {{- $dbMigrations := .Values.dbMigrations | default (dict) -}}
+      {{- $dbMigrationsEnabled := default false $dbMigrations.enabled -}}
+      {{- $argsValue := .Values.args -}}
+      {{- $argsOrder := .Values.argsOrder -}}
+      {{- $renderedArgs := dict "items" (list) -}}
+      {{- if kindIs "map" $argsValue }}
+        {{- $sortedKeys := keys $argsValue | sortAlpha -}}
+        {{- $orderedKeys := dict "items" (list) -}}
+        {{- $seen := dict -}}
+        {{- if kindIs "slice" $argsOrder }}
+          {{- range $argsOrder }}
+            {{- $flag := printf "%v" . -}}
+            {{- if and (hasKey $argsValue $flag) (not (hasKey $seen $flag)) }}
+              {{- $_ := set $seen $flag true -}}
+              {{- $_ := set $orderedKeys "items" (append (index $orderedKeys "items") $flag) -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- range $sortedKeys }}
+          {{- if not (hasKey $seen .) }}
+            {{- $_ := set $orderedKeys "items" (append (index $orderedKeys "items") .) -}}
+          {{- end }}
+        {{- end }}
+        {{- range (index $orderedKeys "items") -}}
+          {{- $flag := . -}}
+          {{- $value := index $argsValue $flag -}}
+          {{- $_ := set $renderedArgs "items" (append (index $renderedArgs "items") (tpl (printf "%v" $flag) $root)) -}}
+          {{- if and (ne $value nil) (ne (print $value) "") }}
+            {{- $_ := set $renderedArgs "items" (append (index $renderedArgs "items") (tpl (printf "%v" $value) $root)) -}}
+          {{- end }}
+        {{- end }}
+      {{- else if kindIs "slice" $argsValue }}
+        {{- range $argsValue }}
+          {{- if kindIs "map" . }}
+            {{- $itemKeys := keys . -}}
+            {{- if ne (len $itemKeys) 1 }}
+              {{- fail "values.args list items must be strings or single-entry maps" -}}
+            {{- end }}
+            {{- $flag := index $itemKeys 0 -}}
+            {{- $value := index . $flag -}}
+            {{- $_ := set $renderedArgs "items" (append (index $renderedArgs "items") (tpl (printf "%v" $flag) $root)) -}}
+            {{- if and (ne $value nil) (ne (print $value) "") }}
+              {{- $_ := set $renderedArgs "items" (append (index $renderedArgs "items") (tpl (printf "%v" $value) $root)) -}}
+            {{- end }}
+          {{- else if ne . nil }}
+            {{- $_ := set $renderedArgs "items" (append (index $renderedArgs "items") (tpl (printf "%v" .) $root)) -}}
+          {{- end }}
+        {{- end }}
+      {{- else if $argsValue }}
+        {{- $_ := set $renderedArgs "items" (list (tpl (printf "%v" $argsValue) $root)) -}}
+      {{- end }}
+      {{- $initContainers := dict "items" (list) -}}
+      {{- if $dbMigrationsEnabled }}
+        {{- if not $appImage }}
+          {{- fail "dbMigrations requires values.image.repository to be set" -}}
+        {{- end }}
+        {{- $retrySeconds := int (default 5 $dbMigrations.retrySeconds) -}}
+        {{- $migrationsContainer := dict "name" "run-db-migrations" "image" $appImage "imagePullPolicy" (default "IfNotPresent" .Values.image.pullPolicy) -}}
+        {{- if $dbMigrations.command }}
+          {{- $_ := set $migrationsContainer "command" $dbMigrations.command -}}
+        {{- else }}
+          {{- $_ := set $migrationsContainer "command" (list "/bin/bash" "/opt/tycho-init/db-migrate.sh") -}}
+        {{- end }}
+        {{- if $dbMigrations.args }}
+          {{- $_ := set $migrationsContainer "args" $dbMigrations.args -}}
+        {{- end }}
+        {{- if $dbMigrations.securityContext }}
+          {{- $_ := set $migrationsContainer "securityContext" $dbMigrations.securityContext -}}
+        {{- end }}
+        {{- if $dbMigrations.resources }}
+          {{- $_ := set $migrationsContainer "resources" $dbMigrations.resources -}}
+        {{- end }}
+        {{- $migrationsEnv := dict "items" (list) -}}
+        {{- if or (not (hasKey $dbMigrations "shareAppEnv")) $dbMigrations.shareAppEnv }}
+          {{- range (index $appEnv "list") }}
+            {{- $_ := set $migrationsEnv "items" (append (index $migrationsEnv "items") .) -}}
+          {{- end }}
+        {{- end }}
+        {{- $_ := set $migrationsEnv "items" (append (index $migrationsEnv "items") (dict "name" "DB_MIGRATIONS_RETRY_SECONDS" "value" (printf "%d" $retrySeconds))) -}}
+        {{- if $dbMigrations.env }}
+          {{- $keys := keys $dbMigrations.env | sortAlpha -}}
+          {{- range $keys }}
+            {{- $envEntry := dict "name" . "value" (tpl (printf "%v" (index $dbMigrations.env .)) $root) -}}
+            {{- $_ := set $migrationsEnv "items" (append (index $migrationsEnv "items") $envEntry) -}}
+          {{- end }}
+        {{- end }}
+        {{- $migrationsEnvList := index $migrationsEnv "items" -}}
+        {{- if gt (len $migrationsEnvList) 0 }}
+          {{- $_ := set $migrationsContainer "env" $migrationsEnvList -}}
+        {{- end }}
+        {{- $migrationsEnvFrom := dict "items" (list) -}}
+        {{- if or (not (hasKey $dbMigrations "shareAppEnv")) $dbMigrations.shareAppEnv }}
+          {{- range (index $appEnvFrom "list") }}
+            {{- $_ := set $migrationsEnvFrom "items" (append (index $migrationsEnvFrom "items") .) -}}
+          {{- end }}
+        {{- end }}
+        {{- range $dbMigrations.envFrom }}
+          {{- $_ := set $migrationsEnvFrom "items" (append (index $migrationsEnvFrom "items") .) -}}
+        {{- end }}
+        {{- $migrationsEnvFromList := index $migrationsEnvFrom "items" -}}
+        {{- if gt (len $migrationsEnvFromList) 0 }}
+          {{- $_ := set $migrationsContainer "envFrom" $migrationsEnvFromList -}}
+        {{- end }}
+        {{- $_ := set $migrationsContainer "volumeMounts" (list (dict "name" "init-scripts" "mountPath" "/opt/tycho-init" "readOnly" true)) -}}
+        {{- $_ := set $initContainers "items" (append (index $initContainers "items") $migrationsContainer) -}}
+      {{- end }}
+      {{- if $dbInitEnabled }}
+        {{- $mountPath := default "/var/lib/tycho-indexer/db-init" $dbInit.mountPath -}}
+        {{- $mountDir := trimSuffix "/" $mountPath -}}
+        {{- $sqlFileName := default "init.sql" $dbInitSQL.fileName -}}
+        {{- $sqlFilePath := printf "%s/%s" $mountDir $sqlFileName -}}
+        {{- $configMapName := default (printf "%s-preflight-sql" $fullname) $dbInitSQL.configMapName -}}
+        {{- $configMapKey := default $sqlFileName $dbInitSQL.configMapKey -}}
+        {{- $_ := set $dbInitConfig "mountDir" $mountDir -}}
+        {{- $_ := set $dbInitConfig "fileName" $sqlFileName -}}
+        {{- $_ := set $dbInitConfig "filePath" $sqlFilePath -}}
+        {{- $_ := set $dbInitConfig "configMapName" $configMapName -}}
+        {{- $_ := set $dbInitConfig "configMapKey" $configMapKey -}}
+        {{- $imageRepo := default "" $dbInit.image.repository -}}
+        {{- $imageTag := default "" $dbInit.image.tag -}}
+        {{- $dbInitImage := $imageRepo -}}
+        {{- if and $imageRepo (ne $imageTag "") }}
+          {{- $dbInitImage = printf "%s:%s" $imageRepo $imageTag -}}
+        {{- end }}
+        {{- if not $dbInitImage }}
+          {{- $dbInitImage = "docker.io/library/postgres:17" -}}
+        {{- end }}
+        {{- $dbInitContainer := dict "name" "run-preflight-sql" "image" $dbInitImage "imagePullPolicy" (default "IfNotPresent" $dbInit.image.pullPolicy) -}}
+        {{- if $dbInit.command }}
+          {{- $_ := set $dbInitContainer "command" $dbInit.command -}}
+        {{- else }}
+          {{- $_ := set $dbInitContainer "command" (list "/bin/sh" "/opt/tycho-init/preflight-sql.sh") -}}
+        {{- end }}
+        {{- if $dbInit.args }}
+          {{- $_ := set $dbInitContainer "args" $dbInit.args -}}
+        {{- end }}
+        {{- if $dbInit.securityContext }}
+          {{- $_ := set $dbInitContainer "securityContext" $dbInit.securityContext -}}
+        {{- end }}
+        {{- if $dbInit.resources }}
+          {{- $_ := set $dbInitContainer "resources" $dbInit.resources -}}
+        {{- end }}
+        {{- $initEnv := dict "items" (list) -}}
+        {{- if or (not (hasKey $dbInit "shareAppEnv")) $dbInit.shareAppEnv }}
+          {{- range (index $appEnv "list") }}
+            {{- $_ := set $initEnv "items" (append (index $initEnv "items") .) -}}
+          {{- end }}
+        {{- end }}
+        {{- $_ := set $initEnv "items" (append (index $initEnv "items") (dict "name" "TYCHO_PREFLIGHT_SQL" "value" $sqlFilePath)) -}}
+        {{- $_ := set $initEnv "items" (append (index $initEnv "items") (dict "name" "TYCHO_PREFLIGHT_RETRY_SECONDS" "value" (printf "%d" (int (default 5 $dbInit.retrySeconds))))) -}}
+        {{- if $dbInit.env }}
+          {{- $keys := keys $dbInit.env | sortAlpha -}}
+          {{- range $keys }}
+            {{- $envEntry := dict "name" . "value" (tpl (printf "%v" (index $dbInit.env .)) $root) -}}
+            {{- $_ := set $initEnv "items" (append (index $initEnv "items") $envEntry) -}}
+          {{- end }}
+        {{- end }}
+        {{- $initEnvList := index $initEnv "items" -}}
+        {{- if gt (len $initEnvList) 0 }}
+          {{- $_ := set $dbInitContainer "env" $initEnvList -}}
+        {{- end }}
+        {{- $initEnvFrom := dict "items" (list) -}}
+        {{- if or (not (hasKey $dbInit "shareAppEnv")) $dbInit.shareAppEnv }}
+          {{- range (index $appEnvFrom "list") }}
+            {{- $_ := set $initEnvFrom "items" (append (index $initEnvFrom "items") .) -}}
+          {{- end }}
+        {{- end }}
+        {{- range $dbInit.envFrom }}
+          {{- $_ := set $initEnvFrom "items" (append (index $initEnvFrom "items") .) -}}
+        {{- end }}
+        {{- $initEnvFromList := index $initEnvFrom "items" -}}
+        {{- if gt (len $initEnvFromList) 0 }}
+          {{- $_ := set $dbInitContainer "envFrom" $initEnvFromList -}}
+        {{- end }}
+        {{- $preflightMounts := list (dict "name" "preflight-sql" "mountPath" $mountDir "readOnly" true) -}}
+        {{- $preflightMounts = append $preflightMounts (dict "name" "init-scripts" "mountPath" "/opt/tycho-init" "readOnly" true) -}}
+        {{- $_ := set $dbInitContainer "volumeMounts" $preflightMounts -}}
+        {{- $_ := set $initContainers "items" (append (index $initContainers "items") $dbInitContainer) -}}
+      {{- end }}
+      {{- range .Values.extraInitContainers }}
+        {{- $_ := set $initContainers "items" (append (index $initContainers "items") .) -}}
+      {{- end }}
+      {{- if gt (len (index $initContainers "items")) 0 }}
+      initContainers:
+        {{- toYaml (index $initContainers "items") | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tycho-indexer
+          {{- if $appImage }}
+          image: {{ $appImage | quote }}
+          {{- end }}
+          imagePullPolicy: {{ default "IfNotPresent" .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $argsList := index $renderedArgs "items" -}}
+          {{- if gt (len $argsList) 0 }}
+          args:
+            {{- toYaml $argsList | nindent 12 }}
+          {{- end }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $envList := index $appEnv "list" -}}
+          {{- if gt (len $envList) 0 }}
+          env:
+            {{- toYaml $envList | nindent 12 }}
+          {{- end }}
+          {{- $envFromList := index $appEnvFrom "list" -}}
+          {{- if gt (len $envFromList) 0 }}
+          envFrom:
+            {{- toYaml $envFromList | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.liveness }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.readiness }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.startup }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.containerPorts }}
+          ports:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $volumeMounts := list -}}
+          {{- if and .Values.extractors.enabled (gt (len .Values.extractors.data) 0) }}
+            {{- $mount := dict "name" "extractors" "mountPath" (printf "%s/%s" (trimSuffix "/" .Values.extractors.mountPath) .Values.extractors.fileName) "subPath" .Values.extractors.fileName "readOnly" true -}}
+            {{- $volumeMounts = append $volumeMounts $mount -}}
+          {{- end }}
+          {{- range .Values.volumeMounts }}
+            {{- $volumeMounts = append $volumeMounts . -}}
+          {{- end }}
+          {{- if gt (len $volumeMounts) 0 }}
+          volumeMounts:
+            {{- toYaml $volumeMounts | nindent 12 }}
+          {{- end }}
+      {{- $additionalContainers := list -}}
+      {{- range .Values.extraContainers }}
+        {{- $additionalContainers = append $additionalContainers . -}}
+      {{- end }}
+      {{- if gt (len $additionalContainers) 0 }}
+        {{- toYaml $additionalContainers | nindent 8 }}
+      {{- end }}
+      {{- $volumes := list -}}
+      {{- if and .Values.extractors.enabled (gt (len .Values.extractors.data) 0) }}
+        {{- $volumes = append $volumes (dict "name" "extractors" "configMap" (dict "name" (printf "%s-extractors" $fullname))) -}}
+      {{- end }}
+      {{- if $dbInitEnabled }}
+        {{- $configMap := dict "name" (index $dbInitConfig "configMapName") -}}
+        {{- if ne (index $dbInitConfig "configMapKey") (index $dbInitConfig "fileName") }}
+          {{- $_ := set $configMap "items" (list (dict "key" (index $dbInitConfig "configMapKey") "path" (index $dbInitConfig "fileName"))) -}}
+        {{- end }}
+        {{- $volumes = append $volumes (dict "name" "preflight-sql" "configMap" $configMap) -}}
+      {{- end }}
+      {{- if or $dbMigrationsEnabled $dbInitEnabled }}
+        {{- $volumes = append $volumes (dict "name" "init-scripts" "configMap" (dict "name" (printf "%s-init-scripts" $fullname))) -}}
+      {{- end }}
+      {{- range .Values.volumes }}
+        {{- $volumes = append $volumes . -}}
+      {{- end }}
+      {{- if gt (len $volumes) 0 }}
+      volumes:
+        {{- toYaml $volumes | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

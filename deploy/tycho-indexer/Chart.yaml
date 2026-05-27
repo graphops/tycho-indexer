@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: tycho-indexer
+description: "Deploys the Tycho Indexer application"
+type: application
+version: 0.1.3
+appVersion: "latest"
+keywords:
+  - tycho
+  - indexer
+  - substreams

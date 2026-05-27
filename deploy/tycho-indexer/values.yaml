@@ -1,0 +1,418 @@
+---
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+workload:
+  # One of: Deployment, StatefulSet
+  kind: Deployment
+
+  deployment:
+    # Values for Deployment spec fields.
+    # spec.strategy for Deployments.
+    #
+    # Example:
+    # strategy:
+    #   type: Recreate
+    strategy: {}
+
+  statefulSet:
+    # Values for StatefulSet spec fields.
+    #
+    # spec.serviceName is required for StatefulSets. By default the chart uses
+    # "<fullname>-headless".
+    serviceName: ""
+
+    # spec.podManagementPolicy (e.g. OrderedReady or Parallel). Empty = unset.
+    podManagementPolicy: ""
+
+    # spec.updateStrategy for StatefulSets.
+    updateStrategy: {}
+
+    headlessService:
+      enabled: true
+      name: ""
+      annotations: {}
+      labels: {}
+      publishNotReadyAddresses: true
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automount: true
+
+annotations: {}
+labels: {}
+podAnnotations: {}
+podLabels: {}
+
+priorityClassName: ""
+topologySpreadConstraints: []
+
+podSecurityContext: {}
+containerSecurityContext: {}
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+command:
+  - /opt/tycho-indexer/tycho-indexer
+  - index
+# args supports:
+# - a list of strings (preserves order)
+# - a list of single-entry maps (preserves order, renders as flag + optional value)
+# - a map of flag -> value (keys are rendered in argsOrder then sorted alphabetically)
+args:
+  --endpoint: ""
+argsOrder: []
+
+lifecycle: {}
+
+containerPorts:
+  - name: http
+    containerPort: 4242
+    protocol: TCP
+
+env:
+  static:
+    SUBSTREAMS_API_TOKEN: dummyvalue
+    AUTH_API_KEY: dummyvalue
+    RUST_LOG: debug
+    OTLP_EXPORTER_ENDPOINT: http://otel-collector-collector.monitoring.svc:4317
+    RPC_URL: ""
+    EXTRACTORS_CONFIG: ./extractors.yaml
+    RETENTION_HORIZON: "0000-01-01T00:00:00"
+    EXTRACTION_WORKER_THREADS: "16"
+    MAIN_WORKER_THREADS: "8"
+    ENABLE_CONSOLE: "false"
+    TYCHO_S3_BUCKET: repo.propellerheads-propellerheads
+    # AWS_REGION: ""
+    # AWS_S3_ENDPOINT: ""
+    # AWS_ACCESS_KEY_ID: ""
+    # AWS_SECRET_ACCESS_KEY: ""
+    # AWS_S3_FORCE_PATH_STYLE: "true"
+  secretRefs: [] # - name: tycho-indexer-secrets
+  #   optional: false
+  #   keys:
+  #     SUBSTREAMS_API_TOKEN: token
+  #     AUTH_API_KEY: apiKey
+  configMapRefs: [] # - name: shared-config
+  #   keys:
+  #     RUST_LOG: logLevel
+  fieldRefs: [] # - name: POD_NAME
+  #   fieldPath: metadata.name
+  #   apiVersion: v1
+  resourceFieldRefs: [] # - name: CPU_LIMIT
+  #   resource: limits.cpu
+  #   containerName: tycho-indexer
+  #   divisor: "1"
+  extra: [] # additional EnvVar objects rendered verbatim
+
+envFrom:
+  secrets: [] # - tycho-indexer-secrets
+  # - name: optional-secret
+  #   optional: true
+  configMaps: [] # - shared-config
+  # - name: overrides
+  #   optional: true
+  extra: [] # additional EnvFromSource objects rendered verbatim
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 4242
+  targetPort: 4242
+  metrics:
+    port: 9898
+    targetPort: 9898
+  annotations: {}
+  labels: {}
+  # Optional overrides for Service spec.selector.
+  # When set, this replaces the default selector labels (app.kubernetes.io/name/instance).
+  selectorLabels: {}
+  extraPorts: []
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: ""
+  # Additional labels to match the target Service.
+  selectorLabels: {}
+  relabelings: []
+  metricRelabelings: []
+  labels: {}
+  annotations: {}
+  # Extra fields merged into the default endpoint (e.g. path, scheme, tlsConfig, params, ...).
+  endpoint:
+    path: /metrics
+  # Optional per-endpoint overrides. Each item is merged onto `serviceMonitor.endpoint`.
+  endpoints: []
+
+grafana:
+  dashboards:
+    # Create a ConfigMap containing dashboards/*.json for Grafana sidecars.
+    enabled: false
+    configMap:
+      # Optional override for ConfigMap metadata.name.
+      name: ""
+      annotations: {}
+      labels:
+        grafana_dashboard: "1"
+
+  operatorDashboards:
+    # Create GrafanaDashboard CRs (Grafana Operator) that reference the dashboards ConfigMap.
+    enabled: false
+    apiVersion: grafana.integreatly.org/v1beta1
+    labels: {}
+    annotations: {}
+    # Label selector used by the Grafana Operator to select the target Grafana instance(s).
+    instanceSelector: {}
+    # Extra fields merged into `spec` (e.g. folder, resyncPeriod, allowCrossNamespaceImport, ...).
+    extraSpec: {}
+
+extractors:
+  enabled: false
+  fileName: extractors.yaml
+  mountPath: /opt/tycho-indexer
+  # Raw contents of the extractors config file (YAML), rendered verbatim into the ConfigMap.
+  #
+  # Example:
+  # data: |
+  #   id: example
+  #   enabled: true
+  data: ""
+  annotations: {}
+
+preflightSql:
+  enabled: true
+  shareAppEnv: true
+  mountPath: /var/lib/tycho-indexer/db-init
+  image:
+    repository: docker.io/library/postgres
+    tag: "17"
+    pullPolicy: IfNotPresent
+  command: []
+  args: []
+  retrySeconds: 5
+  env:
+    TYCHO_PARTMAN_PARTITION_INTERVAL: "1 day"
+    TYCHO_PARTMAN_PREMAKE: "7"
+    TYCHO_PARTMAN_BACKFILL_START: "2020-05-05T20:10:37Z"
+    TYCHO_PARTMAN_BOOTSTRAP_FUTURE_DAYS: "0"
+  envFrom: []
+  securityContext: {}
+  resources: {}
+  sql:
+    fileName: init.sql
+    statements:
+      - |
+        SELECT set_config('tycho.partman.partition_interval', COALESCE(NULLIF(:'partition_interval', ''), '1 day'), false);
+        SELECT set_config('tycho.partman.premake', COALESCE(NULLIF(:'premake', ''), '7'), false);
+        SELECT set_config('tycho.partman.retention', COALESCE(:'retention', '1 month'), false);
+        SELECT set_config('tycho.partman.backfill_start', NULLIF(:'backfill_start', ''), false);
+        SELECT set_config('tycho.partman.future_days', COALESCE(NULLIF(:'future_days', ''), '0'), false);
+
+        DO $$
+        DECLARE
+          target_tables CONSTANT text[] := ARRAY['public.protocol_state', 'public.contract_storage', 'public.component_balance'];
+          cfg RECORD;
+          tbl text;
+          part_interval interval;
+          start_ts timestamptz;
+          future_end timestamptz;
+          existing_min timestamptz;
+          existing_max timestamptz;
+          existing_max_end timestamptz;
+          create_start timestamptz;
+          create_end timestamptz;
+          first_child text;
+          last_child text;
+        BEGIN
+          SELECT
+            COALESCE(NULLIF(current_setting('tycho.partman.partition_interval', true), ''), '1 day') AS partition_interval,
+            COALESCE(NULLIF(current_setting('tycho.partman.premake', true), ''), '7')::int          AS premake,
+            current_setting('tycho.partman.retention', true)                                      AS retention,
+            NULLIF(current_setting('tycho.partman.backfill_start', true), '')::timestamptz          AS backfill_start,
+            COALESCE(NULLIF(current_setting('tycho.partman.future_days', true), ''), '0')::int       AS future_days
+          INTO cfg;
+
+          part_interval := cfg.partition_interval::interval;
+          IF cfg.future_days < 0 THEN
+            RAISE EXCEPTION 'tycho: future_days must be >= 0';
+          END IF;
+          IF part_interval IS NULL THEN
+            RAISE EXCEPTION 'tycho: partition_interval is required';
+          END IF;
+
+          UPDATE partman.part_config
+          SET partition_interval = cfg.partition_interval,
+              premake             = cfg.premake,
+              retention           = NULLIF(cfg.retention, '')
+          WHERE parent_table = ANY(target_tables);
+
+          FOREACH tbl IN ARRAY target_tables LOOP
+            existing_min := NULL;
+            existing_max := NULL;
+            existing_max_end := NULL;
+
+            SELECT
+              partition_schemaname || '.' || partition_tablename
+            INTO first_child
+            FROM partman.show_partitions(tbl, 'ASC', false)
+            LIMIT 1;
+
+            IF first_child IS NOT NULL THEN
+              SELECT child_start_time
+              INTO existing_min
+              FROM partman.show_partition_info(first_child, cfg.partition_interval, tbl);
+            END IF;
+
+            SELECT
+              partition_schemaname || '.' || partition_tablename
+            INTO last_child
+            FROM partman.show_partitions(tbl, 'DESC', false)
+            LIMIT 1;
+
+            IF last_child IS NOT NULL THEN
+              SELECT child_start_time, child_end_time
+              INTO existing_max, existing_max_end
+              FROM partman.show_partition_info(last_child, cfg.partition_interval, tbl);
+            END IF;
+
+            IF cfg.backfill_start IS NOT NULL THEN
+              start_ts := cfg.backfill_start;
+              IF start_ts <= now() THEN
+                IF existing_min IS NOT NULL THEN
+                  create_end := existing_min - part_interval;
+                ELSE
+                  create_end := now();
+                END IF;
+                IF create_end >= start_ts THEN
+                  BEGIN
+                    PERFORM partman.create_partition_time(
+                      tbl,
+                      ARRAY(
+                        SELECT gs
+                        FROM generate_series(start_ts, create_end, part_interval) AS gs
+                      )
+                    );
+                  EXCEPTION
+                    WHEN others THEN
+                      IF SQLSTATE = 'P0001' AND POSITION('overlap partition' IN SQLERRM) > 0 THEN
+                        RAISE NOTICE 'tycho: % backfill partitions already exist, skipping duplicates', tbl;
+                      ELSE
+                        RAISE;
+                      END IF;
+                  END;
+                END IF;
+              END IF;
+            END IF;
+
+            IF cfg.future_days > 0 THEN
+              future_end := now() + make_interval(days => cfg.future_days);
+              IF existing_max_end IS NOT NULL THEN
+                create_start := existing_max_end;
+              ELSE
+                create_start := date_trunc('day', now());
+              END IF;
+              IF create_start <= future_end THEN
+                BEGIN
+                  PERFORM partman.create_partition_time(
+                    tbl,
+                    ARRAY(
+                      SELECT gs
+                      FROM generate_series(create_start, future_end, part_interval) AS gs
+                    )
+                  );
+                EXCEPTION
+                  WHEN others THEN
+                    IF SQLSTATE = 'P0001' AND POSITION('overlap partition' IN SQLERRM) > 0 THEN
+                      RAISE NOTICE 'tycho: % future partitions already exist, skipping duplicates', tbl;
+                    ELSE
+                      RAISE;
+                    END IF;
+                END;
+              END IF;
+            END IF;
+
+            EXECUTE 'DROP TABLE IF EXISTS partman_temp_data_storage';
+            EXECUTE 'DROP TABLE IF EXISTS partman.partman_temp_data_storage';
+
+            CALL partman.partition_data_proc(tbl);
+          END LOOP;
+        END;
+        $$;
+    configMapName: ""
+    configMapKey: ""
+
+dbMigrations:
+  enabled: true
+  shareAppEnv: true
+  retrySeconds: 5
+  command: []
+  args: []
+  env: {}
+  envFrom: []
+  securityContext: {}
+  resources: {}
+
+database:
+  assembledEnvName: DATABASE_URL
+  fragmentEnvNames:
+    host: DB_HOST
+    port: DB_PORT
+    name: DB_NAME
+    user: DB_USER
+    password: DB_PASS
+  assembleTemplate: postgres://$(DB_USER):$(DB_PASS)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)
+  url: null
+  fragments: {}
+  additional: {}
+
+probes:
+  liveness:
+    httpGet:
+      path: /v1/health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 6
+  readiness:
+    httpGet:
+      path: /v1/health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 6
+  startup:
+    httpGet:
+      path: /v1/health
+      port: http
+    failureThreshold: 30
+    periodSeconds: 5
+
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  minAvailable: ""
+
+extraInitContainers: []
+extraContainers: []
+volumes: [] # additional pod volumes
+volumeMounts: [] # additional mounts for the main container
+
+argoCD:
+  syncWaveBase: 0

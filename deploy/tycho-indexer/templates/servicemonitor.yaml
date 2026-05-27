@@ -1,0 +1,50 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- $matchLabels := include "tycho-indexer.selectorLabels" . | fromYaml -}}
+{{- with .Values.serviceMonitor.selectorLabels }}
+{{- $matchLabels = merge $matchLabels . -}}
+{{- end }}
+{{- $_ := set $matchLabels "serviceMonitorTarget" "true" -}}
+{{- $baseEndpoint := dict "port" "metrics" "path" "/metrics" -}}
+{{- with .Values.serviceMonitor.interval }}
+{{- $_ := set $baseEndpoint "interval" . -}}
+{{- end }}
+{{- with .Values.serviceMonitor.scrapeTimeout }}
+{{- $_ := set $baseEndpoint "scrapeTimeout" . -}}
+{{- end }}
+{{- with .Values.serviceMonitor.metricRelabelings }}
+{{- $_ := set $baseEndpoint "metricRelabelings" . -}}
+{{- end }}
+{{- with .Values.serviceMonitor.relabelings }}
+{{- $_ := set $baseEndpoint "relabelings" . -}}
+{{- end }}
+{{- with .Values.serviceMonitor.endpoint }}
+{{- $baseEndpoint = mergeOverwrite $baseEndpoint . -}}
+{{- end }}
+{{- $renderedEndpoints := list -}}
+{{- with .Values.serviceMonitor.endpoints }}
+  {{- range . }}
+    {{- $renderedEndpoints = append $renderedEndpoints (mergeOverwrite (deepCopy $baseEndpoint) .) -}}
+  {{- end }}
+{{- else }}
+  {{- $renderedEndpoints = append $renderedEndpoints $baseEndpoint -}}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ printf "%s-metrics" (include "tycho-indexer.fullname" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- toYaml $matchLabels | nindent 6 }}
+  endpoints:{{- toYaml $renderedEndpoints | nindent 4 }}
+{{- end }}

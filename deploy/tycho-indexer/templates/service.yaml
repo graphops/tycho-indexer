@@ -1,0 +1,48 @@
+{{- if .Values.service.enabled }}
+{{- $labels := include "tycho-indexer.labels" . | fromYaml -}}
+{{- with .Values.service.labels }}
+{{- $labels = merge $labels . -}}
+{{- end }}
+{{- $_ := set $labels "serviceMonitorTarget" "true" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tycho-indexer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- if .Values.service.selectorLabels }}
+    {{- toYaml .Values.service.selectorLabels | nindent 4 }}
+    {{- else }}
+    {{- include "tycho-indexer.selectorLabels" . | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.service.metrics.port }}
+      targetPort: {{ default .Values.service.metrics.port .Values.service.metrics.targetPort }}
+      protocol: TCP
+      {{- with .Values.service.metrics.appProtocol }}
+      appProtocol: {{ . | quote }}
+      {{- end }}
+    {{- with .Values.service.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

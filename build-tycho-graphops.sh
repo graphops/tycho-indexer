@@ -36,7 +36,7 @@ Options:
 EOF
 }
 
-: "${BUILD_DOCKER_BIN:=docker}"
+: "${BUILD_DOCKER_BIN:=podman}"
 : "${BUILD_PLATFORM:=}"
 : "${BUILD_BASE_DOCKERFILE:=Dockerfile}"
 : "${BUILD_BASE_CONTEXT:=.}"

@@ -1,0 +1,39 @@
+{{- $grafana := .Values.grafana | default (dict) -}}
+{{- $dashboards := $grafana.dashboards | default (dict) -}}
+{{- $operatorDashboards := $grafana.operatorDashboards | default (dict) -}}
+{{- if (default false $operatorDashboards.enabled) }}
+{{- $dashboardFiles := .Files.Glob "dashboards/*.json" -}}
+{{- if eq (len $dashboardFiles) 0 -}}
+{{- fail "grafana.operatorDashboards.enabled is true but no dashboards/*.json files were found in the chart" -}}
+{{- end -}}
+{{- $cmName := default (printf "%s-dashboards" (include "tycho-indexer.fullname" .)) $dashboards.configMap.name | trunc 63 | trimSuffix "-" -}}
+{{- $apiVersion := default "grafana.integreatly.org/v1beta1" $operatorDashboards.apiVersion -}}
+{{- range $path, $_ := $dashboardFiles }}
+{{- $dashboardName := trimSuffix ".json" (base $path) | replace "_" "-" | replace "." "-" | lower -}}
+{{- $spec := dict
+  "configMapRef" (dict "name" $cmName "key" (base $path))
+  "instanceSelector" ($operatorDashboards.instanceSelector | default (dict))
+-}}
+{{- with $operatorDashboards.extraSpec }}
+{{- $spec = merge $spec . -}}
+{{- end }}
+---
+apiVersion: {{ $apiVersion }}
+kind: GrafanaDashboard
+metadata:
+  name: {{ printf "%s-%s" (include "tycho-indexer.fullname" $) $dashboardName | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" $ | nindent 4 }}
+    {{- with $operatorDashboards.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" $.Values.argoCD.syncWaveBase "offset" 0) | quote }}
+    {{- with $operatorDashboards.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+{{- toYaml $spec | nindent 2 }}
+{{- end }}
+{{- end }}

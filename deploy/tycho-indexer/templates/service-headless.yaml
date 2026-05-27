@@ -1,0 +1,59 @@
+{{- $root := . -}}
+{{- $workload := .Values.workload | default (dict) -}}
+{{- $kind := default "Deployment" $workload.kind -}}
+{{- $stateful := default (dict) $workload.statefulSet -}}
+{{- $headless := default (dict) $stateful.headlessService -}}
+{{- $enabled := true -}}
+{{- if hasKey $headless "enabled" -}}
+  {{- $enabled = $headless.enabled -}}
+{{- end -}}
+{{- if and (eq $kind "StatefulSet") $enabled }}
+{{- $fullname := include "tycho-indexer.fullname" $root -}}
+{{- $defaultName := printf "%s-headless" $fullname -}}
+{{- $candidateName := default $defaultName $headless.name -}}
+{{- $name := default $candidateName $stateful.serviceName -}}
+{{- $labels := include "tycho-indexer.labels" $root | fromYaml -}}
+{{- with $headless.labels }}
+{{- $labels = merge $labels . -}}
+{{- end }}
+{{- $publishNotReady := true -}}
+{{- if hasKey $headless "publishNotReadyAddresses" -}}
+  {{- $publishNotReady = $headless.publishNotReadyAddresses -}}
+{{- end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" $root.Values.argoCD.syncWaveBase "offset" -1) | quote }}
+    {{- with $headless.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: {{ $publishNotReady }}
+  selector:
+    {{- if $root.Values.service.selectorLabels }}
+    {{- toYaml $root.Values.service.selectorLabels | nindent 4 }}
+    {{- else }}
+    {{- include "tycho-indexer.selectorLabels" $root | nindent 4 }}
+    {{- end }}
+  ports:
+    - name: http
+      port: {{ $root.Values.service.port }}
+      targetPort: {{ $root.Values.service.targetPort }}
+      protocol: TCP
+    - name: metrics
+      port: {{ $root.Values.service.metrics.port }}
+      targetPort: {{ default $root.Values.service.metrics.port $root.Values.service.metrics.targetPort }}
+      protocol: TCP
+      {{- with $root.Values.service.metrics.appProtocol }}
+      appProtocol: {{ . | quote }}
+      {{- end }}
+    {{- with $root.Values.service.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

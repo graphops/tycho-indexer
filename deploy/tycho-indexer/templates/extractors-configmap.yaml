@@ -1,0 +1,17 @@
+{{- if and .Values.extractors.enabled (gt (len .Values.extractors.data) 0) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-extractors" (include "tycho-indexer.fullname" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" .Values.argoCD.syncWaveBase "offset" -1) | quote }}
+    {{- with .Values.extractors.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  {{ .Values.extractors.fileName }}: |
+{{ .Values.extractors.data | indent 4 }}
+{{- end }}

@@ -1,4 +1,16 @@
 extractors:
+  ambient:
+    name: "ambient"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 17361664
+    protocol_types:
+      - name: "ambient_pool"
+        financial_type: "Swap"
+    spkg: "substreams/target/spkg/ethereum-ambient-v0.6.1.spkg"
+    module_name: "map_changes"
+
   uniswap_v2:
     name: "uniswap_v2"
     chain: "ethereum"
@@ -8,7 +20,7 @@ extractors:
     protocol_types:
       - name: "uniswap_v2_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-uniswap-v2/ethereum-uniswap-v2-v0.3.0.spkg"
+    spkg: "substreams/target/spkg/ethereum-uniswap-v2-v0.3.2.spkg"
     module_name: "map_pool_events"
 
   uniswap_v3:
@@ -20,22 +32,22 @@ extractors:
     protocol_types:
       - name: "uniswap_v3_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-uniswap-v3/ethereum-uniswap-v3-logs-only-0.1.1.spkg"
+    spkg: "substreams/target/spkg/ethereum-uniswap-v3-v0.3.1.spkg"
     module_name: "map_protocol_changes"
 
-  sushiswap_v2:
-    name: "sushiswap_v2"
+  uniswap_v4_with_hooks:
+    name: "uniswap_v4"
     chain: "ethereum"
     implementation_type: "Custom"
     sync_batch_size: 1000
-    start_block: 10794229
+    start_block: 21688329
     protocol_types:
-      - name: "sushiswap_v2_pool"
+      - name: "uniswap_v4_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-uniswap-v2/ethereum-sushiswap-v2-v0.3.1.spkg"
-    module_name: "map_pool_events"
+    spkg: "substreams/target/spkg/ethereum-uniswap-v4-with-hooks-v0.7.0.spkg"
+    module_name: "map_protocol_changes"
 
-  vm:balancer_v2:
+  balancer_v2_vm:
     name: "vm:balancer_v2"
     chain: "ethereum"
     implementation_type: "Vm"
@@ -44,20 +56,32 @@ extractors:
     protocol_types:
       - name: "balancer_v2_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-balancer-v2/ethereum-balancer-v2-v0.2.4.spkg"
+    spkg: "substreams/target/spkg/ethereum-balancer-v2-v0.4.1.spkg"
     module_name: "map_protocol_changes"
 
-  pancakeswap_v2:
-    name: "pancakeswap_v2"
+  balancer_v3_vm:
+    name: "vm:balancer_v3"
     chain: "ethereum"
-    implementation_type: "Custom"
+    implementation_type: "Vm"
     sync_batch_size: 1000
-    start_block: 15614590
+    start_block: 21332121
     protocol_types:
-      - name: "pancakeswap_v2_pool"
+      - name: "balancer_v3_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-uniswap-v2/ethereum-pancakeswap-v2-v0.3.2.spkg"
-    module_name: "map_pool_events"
+    spkg: "substreams/target/spkg/ethereum-balancer-v3-v0.4.0.spkg"
+    module_name: "map_protocol_changes"
+
+  curve_vm:
+    name: "vm:curve"
+    chain: "ethereum"
+    implementation_type: "Vm"
+    sync_batch_size: 1000
+    start_block: 9906598
+    protocol_types:
+      - name: "curve_pool"
+        financial_type: "Swap"
+    spkg: "substreams/target/spkg/ethereum-curve-v0.3.4.spkg"
+    module_name: "map_protocol_changes"
 
   pancakeswap_v3:
     name: "pancakeswap_v3"
@@ -68,31 +92,7 @@ extractors:
     protocol_types:
       - name: "pancakeswap_v3_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-pancakeswap-v3/ethereum-pancakeswap-v3-v0.1.1.spkg"
-    module_name: "map_protocol_changes"
-
-  vm:curve:
-    name: "vm:curve"
-    chain: "ethereum"
-    implementation_type: "Vm"
-    sync_batch_size: 1000
-    start_block: 9906598
-    protocol_types:
-      - name: "curve_pool"
-        financial_type: "Swap"
-    spkg: "substreams/ethereum-curve/ethereum-curve-v0.3.2.spkg"
-    module_name: "map_protocol_changes"
-
-  uniswap_v4:
-    name: "uniswap_v4"
-    chain: "ethereum"
-    implementation_type: "Custom"
-    sync_batch_size: 1000
-    start_block: 21688329
-    protocol_types:
-      - name: "uniswap_v4_pool"
-        financial_type: "Swap"
-    spkg: "substreams/ethereum-uniswap-v4/ethereum-uniswap-v4-v0.2.1.spkg"
+    spkg: "substreams/target/spkg/ethereum-pancakeswap-v3-v0.1.2.spkg"
     module_name: "map_protocol_changes"
 
   ekubo_v2:
@@ -104,5 +104,89 @@ extractors:
     protocol_types:
       - name: "ekubo_v2_pool"
         financial_type: "Swap"
-    spkg: "substreams/ethereum-ekubo-v2/ethereum-ekubo-v2-v0.1.0.spkg"
+    spkg: "substreams/target/spkg/ethereum-ekubo-v2-v0.2.0.spkg"
+    module_name: "map_protocol_changes"
+
+  maverick_v2:
+    name: "maverick_v2"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 17918031
+    protocol_types:
+      - name: "maverick_v2_pool"
+        financial_type: "Swap"
+    spkg: "substreams/target/spkg/ethereum-maverick-v2-v0.4.0.spkg"
+    module_name: "map_protocol_changes"
+
+  sfrax:
+    name: "sfrax"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 18378085
+    protocol_types:
+      - name: "sfrax_pool"
+        financial_type: "Lend"
+    spkg: "substreams/target/spkg/ethereum-sfrax-v0.1.2.spkg"
+    module_name: "map_protocol_changes"
+
+  sfraxeth:
+    name: "sfraxeth"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 15686046
+    protocol_types:
+      - name: "sfraxeth_pool"
+        financial_type: "Lend"
+    spkg: "substreams/target/spkg/ethereum-sfraxeth-v0.1.1.spkg"
+    module_name: "map_protocol_changes"
+
+  lido:
+    name: "lido"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 23939449
+    protocol_types:
+      - name: "lido_pool"
+        financial_type: "Lend"
+    spkg: "substreams/target/spkg/ethereum-lido-v0.1.0.spkg"
+    module_name: "map_protocol_changes"
+
+  erc4626:
+    name: "erc4626"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 16428133
+    protocol_types:
+      - name: "erc4626_vault"
+        financial_type: "Lend"
+    spkg: "substreams/target/spkg/ethereum-erc4626-v0.1.0.spkg"
+    module_name: "map_protocol_changes"
+
+  template_factory:
+    name: "template_factory"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 1
+    protocol_types:
+      - name: "template_component"
+        financial_type: "Swap"
+    spkg: "substreams/target/spkg/ethereum-template-factory-v0.1.0.spkg"
+    module_name: "map_protocol_changes"
+
+  template_singleton:
+    name: "template_singleton"
+    chain: "ethereum"
+    implementation_type: "Custom"
+    sync_batch_size: 1000
+    start_block: 0
+    protocol_types:
+      - name: "template_component"
+        financial_type: "Swap"
+    spkg: "substreams/target/spkg/ethereum-template-singleton-v0.1.0.spkg"
     module_name: "map_protocol_changes"

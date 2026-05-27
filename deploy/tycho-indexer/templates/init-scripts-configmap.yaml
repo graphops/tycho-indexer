@@ -1,0 +1,145 @@
+{{- $fullname := include "tycho-indexer.fullname" . -}}
+{{- $dbMigrations := .Values.dbMigrations | default (dict) -}}
+{{- $dbMigrationsEnabled := default false $dbMigrations.enabled -}}
+{{- $preflight := .Values.preflightSql | default (dict) -}}
+{{- $preflightEnabled := default false $preflight.enabled -}}
+{{- if or $dbMigrationsEnabled $preflightEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-init-scripts" $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tycho-indexer.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ include "tycho-indexer.syncWave" (dict "base" .Values.argoCD.syncWaveBase "offset" -1) | quote }}
+data:
+{{- if $dbMigrationsEnabled }}
+  db-migrate.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    log() {
+      printf 'dbMigrations: %s\n' "$*" >&2
+    }
+
+    trap 'log "exiting on line ${LINENO}"' ERR
+
+    db_host=""
+    db_port=""
+
+    resolve_db_endpoint() {
+      local url hostport candidate_host candidate_port
+
+      if [[ -n "${DB_HOST:-}" ]]; then
+        db_host="${DB_HOST}"
+        db_port="${DB_PORT:-5432}"
+        log "using DB_HOST=${db_host} DB_PORT=${db_port}"
+        return
+      fi
+
+      if [[ -n "${DATABASE_URL:-}" ]]; then
+        url="${DATABASE_URL#*://}"
+        hostport="${url%%/*}"
+        hostport="${hostport##*@}"
+        candidate_host="${hostport%%:*}"
+        candidate_port=""
+        if [[ "${hostport}" == *:* ]]; then
+          candidate_port="${hostport##*:}"
+        fi
+        if [[ -n "${candidate_host}" ]]; then
+          db_host="${candidate_host}"
+        fi
+        if [[ -n "${candidate_port}" ]]; then
+          db_port="${candidate_port}"
+        fi
+      fi
+
+      if [[ -z "${db_host}" && -n "${DB_HOST:-}" ]]; then
+        db_host="${DB_HOST}"
+      fi
+      if [[ -z "${db_port}" && -n "${DB_PORT:-}" ]]; then
+        db_port="${DB_PORT}"
+      fi
+
+      db_port="${db_port:-5432}"
+
+      if [[ -z "${db_host}" ]]; then
+        log "unable to resolve database host from DATABASE_URL or DB_HOST"
+        exit 1
+      fi
+
+      log "resolved database endpoint ${db_host}:${db_port}"
+    }
+
+    wait_for_db() {
+      resolve_db_endpoint
+      local sleep_seconds="${DB_MIGRATIONS_RETRY_SECONDS:-5}"
+      while true; do
+        if (echo > "/dev/tcp/${db_host}/${db_port}") >/dev/null 2>&1; then
+          log "database is reachable at ${db_host}:${db_port}"
+          break
+        fi
+        log "waiting for database at ${db_host}:${db_port}..."
+        sleep "${sleep_seconds}"
+      done
+    }
+
+    wait_for_db
+
+    if [[ -z "${DATABASE_URL:-}" ]]; then
+      log "DATABASE_URL must be provided"
+      exit 1
+    fi
+
+    if [[ "$#" -eq 0 ]]; then
+      set -- /usr/local/bin/tycho-migration-runner
+    fi
+
+    log "starting $*"
+    exec "$@"
+{{- end }}
+{{- if $preflightEnabled }}
+  preflight-sql.sh: |
+    #!/bin/sh
+    set -eu
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+      echo "preflightSql: DATABASE_URL must be provided" >&2
+      exit 1
+    fi
+
+    wait_for_db() {
+      retries="${TYCHO_PREFLIGHT_RETRY_SECONDS:-5}"
+      while ! psql "${DATABASE_URL}" -c 'select 1' >/dev/null 2>&1; do
+        echo "preflightSql: waiting for database..." >&2
+        sleep "${retries}"
+      done
+    }
+
+    wait_for_db
+
+    partition_interval="${TYCHO_PARTMAN_PARTITION_INTERVAL:-1 day}"
+    premake="${TYCHO_PARTMAN_PREMAKE:-7}"
+    retention="${TYCHO_PARTMAN_RETENTION:-1 month}"
+    backfill_start="${TYCHO_PARTMAN_BACKFILL_START:-}"
+    future_days="${TYCHO_PARTMAN_BOOTSTRAP_FUTURE_DAYS:-0}"
+
+    sql_file="${TYCHO_PREFLIGHT_SQL:-/var/lib/tycho-indexer/db-init/init.sql}"
+    if [ ! -s "${sql_file}" ]; then
+      echo "preflightSql: no SQL statements to apply; skipping"
+      exit 0
+    fi
+
+    psql "${DATABASE_URL}" \
+      --set=ON_ERROR_STOP=1 \
+      -v partition_interval="${partition_interval}" \
+      -v premake="${premake}" \
+      -v retention="${retention}" \
+      -v backfill_start="${backfill_start}" \
+      -v future_days="${future_days}" \
+      -f "${sql_file}"
+
+    echo "preflightSql: completed partition configuration and bootstrap work" >&2
+{{- end }}
+{{- end }}
